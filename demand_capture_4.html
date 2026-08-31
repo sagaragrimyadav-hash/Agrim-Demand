@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agrim Demand Form</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --ink: #1a1a1a;
+    --muted: #6b6b6b;
+    --line: #d8d8d3;
+    --bg: #fafaf8;
+    --field-bg: #ffffff;
+    --accent: #2f5233;
+    --accent-hover: #244027;
+    --error: #a33;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.45;
+  }
+  .wrap {
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 28px 20px 60px;
+  }
+  h1 {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 0 0 4px;
+  }
+  .sub {
+    color: var(--muted);
+    font-size: 14px;
+    margin: 0 0 28px;
+  }
+  label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    margin: 18px 0 6px;
+  }
+  input, select, textarea {
+    width: 100%;
+    padding: 11px 12px;
+    font-size: 16px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--field-bg);
+    color: var(--ink);
+    font-family: inherit;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+    border-color: var(--accent);
+  }
+  input:disabled, select:disabled {
+    background: #f0f0ee;
+    color: var(--muted);
+  }
+  button {
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    padding: 12px 18px;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: #fff;
+    width: 100%;
+    margin-top: 26px;
+  }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-primary:disabled { background: #a9a9a9; cursor: not-allowed; }
+  .btn-secondary {
+    background: #fff;
+    border: 1px solid var(--line);
+    color: var(--ink);
+  }
+  .btn-secondary:hover { border-color: var(--accent); }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 5px; }
+  .error-text { color: var(--error); font-size: 13px; margin-top: 5px; display: none; }
+  .success {
+    text-align: center;
+    padding: 60px 0;
+  }
+  .success h2 { font-size: 19px; margin-bottom: 8px; }
+  .success p { color: var(--muted); margin-bottom: 24px; }
+  .admin-list-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 14px;
+  }
+  .admin-section {
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+  }
+  .admin-section h2 { font-size: 15px; margin: 0 0 12px; }
+  .status-msg { font-size: 13px; margin-top: 10px; padding: 8px 10px; border-radius: 4px; display: none; }
+  .status-msg.ok { background: #eaf3ea; color: var(--accent); display: block; }
+  .status-msg.err { background: #f6e6e6; color: var(--error); display: block; }
+  .passgate { max-width: 320px; margin: 80px auto; text-align: center; }
+  .passgate input { text-align: center; margin-bottom: 12px; }
+  .loading { color: var(--muted); font-size: 14px; padding: 40px 0; text-align: center; }
+  .count-badge { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  .file-input-wrap { margin-top: 10px; }
+  .config-warning {
+    background: #f6e6e6;
+    color: var(--error);
+    padding: 14px;
+    border-radius: 4px;
+    font-size: 14px;
+    margin-top: 20px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap" id="app">
+  <div class="loading">Loading...</div>
+</div>
+
+<script>
+// ===== CONFIG — fill this in after deploying the Apps Script Web App =====
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyH6mvuPh1_3xZ9s38lkwE5LlwkvwYvKISX8xgj12pF2xb1TrUc8o64EOrUgSPsz1PP8w/exec
+";
+// ===========================================================================
+
+const ADMIN_PASSCODE = "agrim2026"; // change this before sharing the admin link widely
+
+const params = new URLSearchParams(window.location.search);
+const isAdmin = params.get("admin") === "1";
+const app = document.getElementById("app");
+const configured = APPS_SCRIPT_URL && APPS_SCRIPT_URL.indexOf("PASTE_YOUR") === -1;
+
+function esc(s) {
+  const d = document.createElement("div");
+  d.textContent = s == null ? "" : String(s);
+  return d.innerHTML;
+}
+
+function uid() {
+  return Date.now() + "-" + Math.random().toString(36).slice(2, 9);
+}
+
+async function apiGet(action) {
+  const res = await fetch(APPS_SCRIPT_URL + "?action=" + encodeURIComponent(action));
+  if (!res.ok) throw new Error("Request failed");
+  return res.json();
+}
+
+// text/plain content-type avoids a CORS preflight that Apps Script doesn't handle.
+async function apiPost(payload) {
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error("Request failed");
+  const json = await res.json();
+  if (json.error) throw new Error(json.error);
+  return json;
+}
+
+function findKey(obj, needle) {
+  const lower = needle.trim().toLowerCase();
+  return Object.keys(obj).find(k => k.toLowerCase() === lower) || null;
+}
+
+function renderNotConfigured() {
+  app.innerHTML = `
+    <h1>Setup needed</h1>
+    <div class="config-warning">
+      This page isn't connected to a backend yet. Open demand_capture.html and set
+      <code>APPS_SCRIPT_URL</code> to your deployed Apps Script Web App URL, then
+      re-publish/re-host the page.
+    </div>
+  `;
+}
+
+// ---------- CUSTOMER FORM VIEW ----------
+const session = { id: uid(), name: "", phone: "", items: [] };
+let CATALOG = {};
+
+async function renderForm() {
+  app.innerHTML = `
+    <h1>Place your order</h1>
+    <p class="sub">Enter your details once — you can add multiple items after.</p>
+    <form id="contactForm">
+      <label for="name">Your name</label>
+      <input type="text" id="name" required value="${esc(session.name)}">
+
+      <label for="phone">Phone number</label>
+      <input type="tel" id="phone" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" required placeholder="10-digit mobile number" value="${esc(session.phone)}">
+      <div class="error-text" id="phoneErr">Enter a valid 10-digit phone number</div>
+
+      <button type="submit" class="btn-primary">Continue</button>
+    </form>
+  `;
+
+  document.getElementById("contactForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const phone = document.getElementById("phone").value.trim();
+    const phoneErr = document.getElementById("phoneErr");
+    if (!/^[0-9]{10}$/.test(phone)) {
+      phoneErr.style.display = "block";
+      return;
+    }
+    session.name = document.getElementById("name").value.trim();
+    session.phone = phone;
+    renderItemForm();
+  });
+}
+
+async function renderItemForm() {
+  app.innerHTML = `<div class="loading">Loading catalog...</div>`;
+  try {
+    CATALOG = await apiGet("catalog");
+  } catch (e) {
+    app.innerHTML = `<div class="config-warning">Couldn't load the product catalog. Please try again shortly.</div>`;
+    return;
+  }
+
+  const brandNames = Object.keys(CATALOG).sort();
+  const catalogEmpty = brandNames.length === 0;
+
+  app.innerHTML = `
+    <h1>Add an item</h1>
+    <p class="sub">${esc(session.name)} · ${esc(session.phone)}</p>
+
+    ${session.items.length > 0 ? `
+      <div class="admin-section" style="margin-top:0; padding-top:0; border-top:none;">
+        <h2>Items added so far (${session.items.length})</h2>
+        ${session.items.map(it => `
+          <div class="admin-list-item">
+            <span>${esc(it.brand)} — ${esc(it.variety)} · ${esc(it.packing)} · ${esc(it.quantity)} · ₹${esc(it.rate)}</span>
+          </div>
+        `).join("")}
+      </div>
+    ` : ""}
+
+    <form id="itemForm">
+      <label for="brand">Brand</label>
+      <input type="text" id="brand" list="brandList" required autocomplete="off" placeholder="Start typing a brand">
+      <datalist id="brandList">
+        ${brandNames.map(b => `<option value="${esc(b)}">`).join("")}
+      </datalist>
+      ${catalogEmpty ? '<div class="hint">Catalog is empty — contact us if this looks wrong.</div>' : ''}
+      <div class="error-text" id="brandErr">Select a brand from the list</div>
+
+      <label for="variety">Variety</label>
+      <input type="text" id="variety" list="varietyList" required autocomplete="off" placeholder="Select a brand first" disabled>
+      <datalist id="varietyList"></datalist>
+      <div class="error-text" id="varietyErr">Select a variety from the list</div>
+
+      <label for="packing">Packing</label>
+      <select id="packing" required disabled>
+        <option value="">Select a variety first</option>
+      </select>
+
+      <label for="quantity">Quantity</label>
+      <input type="number" id="quantity" min="0" step="any" required>
+
+      <label for="rate">Rate (expected)</label>
+      <input type="number" id="rate" min="0" step="any" required>
+
+      <button type="submit" class="btn-primary" id="submitBtn">Add item</button>
+      <div class="status-msg" id="formStatus"></div>
+    </form>
+
+    ${session.items.length > 0 ? `<button class="btn-secondary" id="finishBtn" style="width:100%; margin-top:12px;">Finish — I'm done adding items</button>` : ""}
+  `;
+
+  const brandInput = document.getElementById("brand");
+  const varietyInput = document.getElementById("variety");
+  const packingSelect = document.getElementById("packing");
+
+  function resetPacking() {
+    packingSelect.disabled = true;
+    packingSelect.innerHTML = '<option value="">Select a variety first</option>';
+  }
+
+  function refreshVarietyOptions() {
+    const brandKey = findKey(CATALOG, brandInput.value);
+    const varietyList = document.getElementById("varietyList");
+    if (!brandKey) {
+      varietyInput.disabled = true;
+      varietyInput.value = "";
+      varietyInput.placeholder = "Select a brand first";
+      varietyList.innerHTML = "";
+      resetPacking();
+      return;
+    }
+    varietyInput.disabled = false;
+    varietyInput.placeholder = "Start typing a variety";
+    const varieties = Object.keys(CATALOG[brandKey]).sort();
+    varietyList.innerHTML = varieties.map(v => `<option value="${esc(v)}">`).join("");
+  }
+
+  function refreshPackingOptions() {
+    const brandKey = findKey(CATALOG, brandInput.value);
+    if (!brandKey) { resetPacking(); return; }
+    const varietyKey = findKey(CATALOG[brandKey], varietyInput.value);
+    if (!varietyKey) { resetPacking(); return; }
+    const packings = CATALOG[brandKey][varietyKey];
+    packingSelect.disabled = false;
+    packingSelect.innerHTML = '<option value="" disabled selected>Select packing</option>' +
+      packings.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join("");
+  }
+
+  brandInput.addEventListener("input", refreshVarietyOptions);
+  varietyInput.addEventListener("input", refreshPackingOptions);
+
+  document.getElementById("itemForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    const brandErr = document.getElementById("brandErr");
+    const varietyErr = document.getElementById("varietyErr");
+    brandErr.style.display = "none";
+    varietyErr.style.display = "none";
+
+    const brandKey = findKey(CATALOG, brandInput.value);
+    if (!brandKey) { brandErr.style.display = "block"; return; }
+    const varietyKey = findKey(CATALOG[brandKey], varietyInput.value);
+    if (!varietyKey) { varietyErr.style.display = "block"; return; }
+    if (!packingSelect.value) { return; }
+
+    const item = {
+      brand: brandKey,
+      variety: varietyKey,
+      packing: packingSelect.value,
+      quantity: document.getElementById("quantity").value,
+      rate: document.getElementById("rate").value
+    };
+
+    const order = {
+      session_id: session.id,
+      name: session.name,
+      phone: session.phone,
+      brand: item.brand,
+      variety: item.variety,
+      packing: item.packing,
+      quantity: item.quantity,
+      rate: item.rate
+    };
+
+    const btn = document.getElementById("submitBtn");
+    const status = document.getElementById("formStatus");
+    btn.disabled = true;
+    btn.textContent = "Adding...";
+
+    try {
+      await apiPost({ action: "submitOrder", order: order });
+      session.items.push(item);
+      renderItemForm();
+    } catch (err) {
+      status.className = "status-msg err";
+      status.textContent = "Something went wrong adding this item. Please try again.";
+      btn.disabled = false;
+      btn.textContent = "Add item";
+    }
+  });
+
+  const finishBtn = document.getElementById("finishBtn");
+  if (finishBtn) finishBtn.addEventListener("click", renderSuccess);
+}
+
+function renderSuccess() {
+  const itemCount = session.items.length;
+  app.innerHTML = `
+    <div class="success">
+      <h2>Order received</h2>
+      <p>Thanks ${esc(session.name)} — we've got your ${itemCount} item(s) and will follow up shortly.</p>
+      <button class="btn-secondary" id="again">Start a new order</button>
+    </div>
+  `;
+  document.getElementById("again").addEventListener("click", () => {
+    session.id = uid();
+    session.name = "";
+    session.phone = "";
+    session.items = [];
+    renderForm();
+  });
+}
+
+// ---------- ADMIN VIEW ----------
+function renderPassGate() {
+  app.innerHTML = `
+    <div class="passgate">
+      <h1>Admin access</h1>
+      <input type="password" id="passInput" placeholder="Enter passcode">
+      <button class="btn-primary" id="passSubmit">Enter</button>
+      <div class="status-msg err" id="passErr" style="display:none;">Incorrect passcode</div>
+    </div>
+  `;
+  document.getElementById("passSubmit").addEventListener("click", () => {
+    if (document.getElementById("passInput").value === ADMIN_PASSCODE) {
+      renderAdmin();
+    } else {
+      document.getElementById("passErr").style.display = "block";
+    }
+  });
+  document.getElementById("passInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") document.getElementById("passSubmit").click();
+  });
+}
+
+function catalogStats(catalog) {
+  const brands = Object.keys(catalog).length;
+  let varieties = 0;
+  Object.values(catalog).forEach(v => { varieties += Object.keys(v).length; });
+  return { brands, varieties };
+}
+
+async function renderAdmin() {
+  app.innerHTML = `<div class="loading">Loading admin panel...</div>`;
+  let catalog = {};
+  try {
+    catalog = await apiGet("catalog");
+  } catch (e) { /* leave empty, still show panel */ }
+  const stats = catalogStats(catalog);
+
+  app.innerHTML = `
+    <h1>Admin panel</h1>
+    <p class="sub">Manage the product catalog. Orders are written live to the "Orders" tab of your Google Sheet — open it directly, or File &gt; Download &gt; Microsoft Excel from there whenever you need an .xlsx.</p>
+
+    <div class="admin-section" style="margin-top:0; padding-top:0; border-top:none;">
+      <h2>Catalog</h2>
+      <div class="count-badge">${stats.brands} brand(s) · ${stats.varieties} variety/variety-packing combo(s)</div>
+      <p class="hint">Upload an Excel/CSV file with columns <strong>Brand</strong>, <strong>Variety</strong>, <strong>Packaging</strong> — one row per brand-variety-packing combination. This replaces the entire catalog. "All Pack" is added automatically to every variety.</p>
+      <div class="file-input-wrap">
+        <input type="file" id="catalogFile" accept=".xlsx,.xls,.csv">
+      </div>
+      <button class="btn-primary" id="uploadBtn" style="margin-top:12px;">Upload and replace catalog</button>
+      <div class="status-msg" id="catalogStatus"></div>
+    </div>
+  `;
+
+  document.getElementById("uploadBtn").addEventListener("click", async () => {
+    const fileInput = document.getElementById("catalogFile");
+    const status = document.getElementById("catalogStatus");
+    const btn = document.getElementById("uploadBtn");
+    if (!fileInput.files || fileInput.files.length === 0) {
+      status.className = "status-msg err";
+      status.textContent = "Choose a file first.";
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = "Processing...";
+    status.style.display = "none";
+
+    try {
+      const file = fileInput.files[0];
+      const data = await file.arrayBuffer();
+      const wb = XLSX.read(data, { type: "array" });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const jsonRows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+      if (jsonRows.length === 0) throw new Error("No rows found in file");
+
+      const sampleKeys = Object.keys(jsonRows[0]);
+      const brandCol = sampleKeys.find(k => /brand/i.test(k));
+      const varietyCol = sampleKeys.find(k => /variety/i.test(k));
+      const packingCol = sampleKeys.find(k => /pack/i.test(k));
+      if (!brandCol || !varietyCol || !packingCol) {
+        throw new Error("Could not find Brand, Variety, and Packaging columns");
+      }
+
+      const rows = [];
+      jsonRows.forEach(r => {
+        const b = String(r[brandCol] || "").trim();
+        const v = String(r[varietyCol] || "").trim();
+        const p = String(r[packingCol] || "").trim();
+        if (!b || !v || !p) return;
+        rows.push({ brand: b, variety: v, packing: p });
+      });
+
+      const result = await apiPost({ action: "replaceCatalog", rows: rows });
+      status.className = "status-msg ok";
+      status.textContent = `Catalog updated: ${result.rowCount} rows uploaded.`;
+    } catch (err) {
+      status.className = "status-msg err";
+      status.textContent = "Upload failed: " + err.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Upload and replace catalog";
+    }
+  });
+}
+
+// ---------- INIT ----------
+(async function init() {
+  if (!configured) {
+    renderNotConfigured();
+    return;
+  }
+  if (isAdmin) {
+    renderPassGate();
+  } else {
+    await renderForm();
+  }
+})();
+</script>
+</body>
+</html>
